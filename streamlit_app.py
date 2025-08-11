@@ -12,10 +12,9 @@ DB_HOST = "ep-icy-moon-a2bfjmyb-pooler.eu-central-1.aws.neon.tech"
 DB_NAME = "neondb"
 
 @st.cache_resource
-def get_connection():
+def get_engine():
     conn_str = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}"
-    engine = create_engine(conn_str, connect_args={"sslmode": "require"})
-    return engine.connect()
+    return create_engine(conn_str, connect_args={"sslmode": "require"})
 
 # Kontext pro hesla
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -133,8 +132,8 @@ def editor_ui():
 
 # Hlavní funkce
 def main():
-    conn = get_connection()
-    
+    engine = get_engine()
+
     st.title("Databázová aplikace s autentizací")
 
     if "logged_in" not in st.session_state:
