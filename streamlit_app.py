@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, text
 from passlib.context import CryptContext
 import os
 
-# Připojení k databázi (bez st.secrets)
+# Připojení k DB
 DB_USER = os.getenv("DB_USER", "neondb_owner")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "npg_xyz")
 DB_HOST = os.getenv("DB_HOST", "ep-abc.eu-central-1.aws.neon.tech")
@@ -14,7 +14,7 @@ DB_NAME = os.getenv("DB_NAME", "main")
 
 engine = create_engine(f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
 
-# Nastavení kontextu pro bezpečné hashování hesel
+# Kontext pro hesla
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
@@ -23,8 +23,12 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
+# Přihlášení
 def check_login(email: str, password: str, conn) -> str | None:
-    result = conn.execute(text("SELECT password_hash, role FROM auth.users WHERE email = :email"), {"email": email}).fetchone()
+    result = conn.execute(
+        text("SELECT password_hash, role FROM auth.users WHERE email = :email"),
+        {"email": email}
+    ).fetchone()
     if not result:
         return None
     stored_hash, role = result
@@ -33,6 +37,7 @@ def check_login(email: str, password: str, conn) -> str | None:
     return None
 
 def login_form():
+    st.subheader("Přihlášení")
     with st.form("login_form"):
         email = st.text_input("Email")
         password = st.text_input("Heslo", type="password")
@@ -45,20 +50,74 @@ def login_form():
             st.session_state.user_email = email
             st.session_state.user_role = role
             st.success(f"Přihlášen jako {email} ({role})")
+            st.rerun()
         else:
             st.error("Neplatné přihlašovací údaje")
 
+# Registrace
+def register_form():
+    st.subheader("Registrace")
+    with st.form("register_form"):
+        email = st.text_input("Email")
+        password = st.text_input("Heslo", type="password")
+        confirm = st.text_input("Potvrzení hesla", type="password")
+        role = st.selectbox("Role", ["viewer", "editor"])
+        submitted = st.form_submit_button("Registrovat")
+    if submitted:
+        if password != confirm:
+            st.error("Hesla se neshodují")
+            return
+        hashed = hash_password(password)
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("INSERT INTO auth.users (email, password_hash, role) VALUES (:email, :hash, :role)"),
+                    {"email": email, "hash": hashed, "role": role}
+                )
+            st.success("Registrace proběhla úspěšně, nyní se přihlaste.")
+        except Exception as e:
+            st.error(f"Chyba: {e}")
+
+# Změna hesla
+def change_password_form():
+    st.subheader("Změna hesla")
+    with st.form("change_password_form"):
+        old_password = st.text_input("Staré heslo", type="password")
+        new_password = st.text_input("Nové heslo", type="password")
+        confirm = st.text_input("Potvrzení nového hesla", type="password")
+        submitted = st.form_submit_button("Změnit heslo")
+    if submitted:
+        if new_password != confirm:
+            st.error("Nová hesla se neshodují")
+            return
+        with engine.begin() as conn:
+            # Ověření starého hesla
+            role = check_login(st.session_state.user_email, old_password, conn)
+            if not role:
+                st.error("Staré heslo není správné")
+                return
+            # Aktualizace
+            hashed = hash_password(new_password)
+            conn.execute(
+                text("UPDATE auth.users SET password_hash = :hash WHERE email = :email"),
+                {"hash": hashed, "email": st.session_state.user_email}
+            )
+        st.success("Heslo bylo změněno")
+
+# Odhlášení
 def logout():
     if st.button("Odhlásit", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
+# Viewer
 def viewer_ui():
     st.subheader("Zobrazení dat")
     with engine.begin() as conn:
         df = pd.read_sql("SELECT * FROM cars.vehicles ORDER BY id", conn)
     st.dataframe(df)
 
+# Editor
 def editor_ui():
     viewer_ui()
     st.subheader("Import dat (jen pro editory)")
@@ -69,6 +128,7 @@ def editor_ui():
             df.to_sql("vehicles", conn, schema="cars", if_exists="append", index=False)
         st.success("Data importována.")
 
+# Hlavní funkce
 def main():
     st.title("Databázová aplikace s autentizací")
 
@@ -76,7 +136,9 @@ def main():
         st.session_state.logged_in = False
 
     if st.session_state.logged_in:
+        st.write(f"👤 {st.session_state.user_email} ({st.session_state.user_role})")
         logout()
+        change_password_form()
         role = st.session_state.user_role
         if role == "viewer":
             viewer_ui()
@@ -85,7 +147,11 @@ def main():
         else:
             st.error("Neznámá role")
     else:
-        login_form()
+        page = st.radio("Vyber akci", ["Přihlášení", "Registrace"])
+        if page == "Přihlášení":
+            login_form()
+        else:
+            register_form()
 
 if __name__ == "__main__":
     main()
