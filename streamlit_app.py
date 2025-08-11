@@ -5,14 +5,17 @@ from sqlalchemy import create_engine, text
 from passlib.context import CryptContext
 import os
 
-# Připojení k DB
-DB_USER = os.getenv("DB_USER", "neondb_owner")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "npg_xyz")
-DB_HOST = os.getenv("DB_HOST", "ep-abc.eu-central-1.aws.neon.tech")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "main")
+# Připojovací údaje (lze později nahradit načítáním z .env)
+DB_USER = "neondb_owner"
+DB_PASSWORD = "npg_bqIR6D2UkALc"
+DB_HOST = "ep-icy-moon-a2bfjmyb-pooler.eu-central-1.aws.neon.tech"
+DB_NAME = "neondb"
 
-engine = create_engine(f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+@st.cache_resource
+def get_connection():
+    conn_str = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}"
+    engine = create_engine(conn_str, connect_args={"sslmode": "require"})
+    return engine.connect()
 
 # Kontext pro hesla
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -130,6 +133,8 @@ def editor_ui():
 
 # Hlavní funkce
 def main():
+    conn = get_connection()
+    
     st.title("Databázová aplikace s autentizací")
 
     if "logged_in" not in st.session_state:
