@@ -3,9 +3,8 @@ import pandas as pd
 from datetime import datetime
 from sqlalchemy import create_engine, text
 from passlib.context import CryptContext
-import os
 
-# Připojovací údaje (lze později nahradit načítáním z .env)
+# Připojení k databázi
 DB_USER = "neondb_owner"
 DB_PASSWORD = "npg_bqIR6D2UkALc"
 DB_HOST = "ep-icy-moon-a2bfjmyb-pooler.eu-central-1.aws.neon.tech"
@@ -16,7 +15,10 @@ def get_engine():
     conn_str = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}"
     return create_engine(conn_str, connect_args={"sslmode": "require"})
 
-# Kontext pro hesla
+# vytvoříme engine globálně
+engine = get_engine()
+
+# Hashování hesel
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
@@ -25,7 +27,7 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
-# Přihlášení
+# Ověření loginu
 def check_login(email: str, password: str, conn) -> str | None:
     result = conn.execute(
         text("SELECT password_hash, role FROM auth.users WHERE email = :email"),
@@ -56,14 +58,13 @@ def login_form():
         else:
             st.error("Neplatné přihlašovací údaje")
 
-# Registrace
 def register_form():
     st.subheader("Registrace")
     with st.form("register_form"):
         email = st.text_input("Email")
         password = st.text_input("Heslo", type="password")
         confirm = st.text_input("Potvrzení hesla", type="password")
-        role = st.selectbox("Role", ["viewer", "editor"])
+        role = st.selectbox("Role", ["viewer", "editor"])  # případně admin
         submitted = st.form_submit_button("Registrovat")
     if submitted:
         if password != confirm:
@@ -80,7 +81,6 @@ def register_form():
         except Exception as e:
             st.error(f"Chyba: {e}")
 
-# Změna hesla
 def change_password_form():
     st.subheader("Změna hesla")
     with st.form("change_password_form"):
@@ -93,12 +93,10 @@ def change_password_form():
             st.error("Nová hesla se neshodují")
             return
         with engine.begin() as conn:
-            # Ověření starého hesla
             role = check_login(st.session_state.user_email, old_password, conn)
             if not role:
                 st.error("Staré heslo není správné")
                 return
-            # Aktualizace
             hashed = hash_password(new_password)
             conn.execute(
                 text("UPDATE auth.users SET password_hash = :hash WHERE email = :email"),
@@ -106,20 +104,18 @@ def change_password_form():
             )
         st.success("Heslo bylo změněno")
 
-# Odhlášení
 def logout():
     if st.button("Odhlásit", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
-# Viewer
+# UI pro role
 def viewer_ui():
     st.subheader("Zobrazení dat")
     with engine.begin() as conn:
         df = pd.read_sql("SELECT * FROM cars.vehicles ORDER BY id", conn)
     st.dataframe(df)
 
-# Editor
 def editor_ui():
     viewer_ui()
     st.subheader("Import dat (jen pro editory)")
@@ -130,10 +126,8 @@ def editor_ui():
             df.to_sql("vehicles", conn, schema="cars", if_exists="append", index=False)
         st.success("Data importována.")
 
-# Hlavní funkce
+# Main
 def main():
-    engine = get_engine()
-
     st.title("Databázová aplikace s autentizací")
 
     if "logged_in" not in st.session_state:
