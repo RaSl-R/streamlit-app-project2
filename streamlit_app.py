@@ -64,8 +64,9 @@ def register_form():
         email = st.text_input("Email")
         password = st.text_input("Heslo", type="password")
         confirm = st.text_input("Potvrzení hesla", type="password")
-        role = st.selectbox("Role", ["viewer", "editor"])  # případně admin
+        requested_role = st.selectbox("Požadovaná role", ["viewer", "editor", "admin"])
         submitted = st.form_submit_button("Registrovat")
+
     if submitted:
         if password != confirm:
             st.error("Hesla se neshodují")
@@ -74,8 +75,11 @@ def register_form():
         try:
             with engine.begin() as conn:
                 conn.execute(
-                    text("INSERT INTO auth.users (email, password_hash, role) VALUES (:email, :hash, :role)"),
-                    {"email": email, "hash": hashed, "role": role}
+                    text("""
+                        INSERT INTO auth.users (email, password_hash, role, requested_role) 
+                        VALUES (:email, :hash, 'viewer', :requested_role)
+                    """),
+                    {"email": email, "hash": hashed, "requested_role": requested_role}
                 )
             st.success("Registrace proběhla úspěšně, nyní se přihlaste.")
         except Exception as e:
